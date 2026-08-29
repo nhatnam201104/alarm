@@ -47,8 +47,11 @@ data class WakeSessionUi(
 
 @Immutable
 data class HomeUiState(
-    val nextAlarm: String = "06:30",
+    val nextAlarm: String? = "06:30",
+    val nextAlarmLabel: String = "Đi làm",
+    val nextAlarmDay: String = "Ngày mai",
     val ready: Boolean = true,
+    val showInsights: Boolean = true,
     val currentStreak: Int = 12,
     val bestStreak: Int = 21,
     val successRate: Int = 86,
@@ -71,47 +74,62 @@ fun HomeDashboardScreen(state: HomeUiState, onAction: (HomeAction) -> Unit, modi
             RiseCard(Modifier.fillMaxWidth().clickable { onAction(HomeAction.OpenNextAlarm) }, Color(0xFF171724)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Báo thức tiếp theo", color = RiseTextMuted, modifier = Modifier.weight(1f))
-                    StatusChip(if (state.ready) "Sẵn sàng" else "Cần kiểm tra", if (state.ready) RiseVerified else RiseWarning, icon = if (state.ready) Icons.Rounded.CheckCircle else Icons.Rounded.ErrorOutline)
+                    StatusChip(if (state.nextAlarm == null) "Chưa thiết lập" else if (state.ready) "Sẵn sàng" else "Cần kiểm tra", if (state.nextAlarm != null && state.ready) RiseVerified else RiseWarning, icon = if (state.nextAlarm != null && state.ready) Icons.Rounded.CheckCircle else Icons.Rounded.ErrorOutline)
                 }
                 Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(state.nextAlarm, style = MaterialTheme.typography.displayLarge)
-                    Text(" AM", color = RiseTextMuted, modifier = Modifier.padding(bottom = 10.dp))
-                    Spacer(Modifier.weight(1f))
-                    Icon(Icons.Rounded.ChevronRight, "Mở báo thức", tint = RiseTextMuted)
+                if (state.nextAlarm == null) {
+                    Text("Tạo báo thức đầu tiên", style = MaterialTheme.typography.headlineMedium)
+                    Text("Chạm để chọn giờ thức dậy.", color = RiseTextMuted)
+                } else {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(state.nextAlarm, style = MaterialTheme.typography.displayLarge)
+                        Spacer(Modifier.weight(1f))
+                        Icon(Icons.Rounded.ChevronRight, "Mở báo thức", tint = RiseTextMuted)
+                    }
+                    Text("${state.nextAlarmDay} · ${state.nextAlarmLabel}", color = RiseTextMuted)
                 }
-                Text("Ngày mai · Đi làm", color = RiseTextMuted)
                 Spacer(Modifier.height(14.dp))
                 HorizontalDivider(color = RiseOutline)
                 Spacer(Modifier.height(12.dp))
-                Text("▣ QR phòng tắm  ·  Squat 15  ·  Toán 3 câu", style = MaterialTheme.typography.bodyMedium)
+                Text("Tắt thủ công bằng cách giữ nút 3 giây", style = MaterialTheme.typography.bodyMedium)
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Chuỗi hiện tại", state.currentStreak.toString() + " ngày", Icons.Rounded.LocalFireDepartment, RisePrimary, "Kỷ lục " + state.bestStreak + " ngày", Modifier.weight(1f))
-                MetricCard("Tỷ lệ thành công", state.successRate.toString() + "%", Icons.Rounded.CheckCircle, RiseVerified, "+2% tuần này", Modifier.weight(1f))
+        if (state.showInsights) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MetricCard("Chuỗi hiện tại", state.currentStreak.toString() + " ngày", Icons.Rounded.LocalFireDepartment, RisePrimary, "Kỷ lục " + state.bestStreak + " ngày", Modifier.weight(1f))
+                    MetricCard("Tỷ lệ thành công", state.successRate.toString() + "%", Icons.Rounded.CheckCircle, RiseVerified, "+2% tuần này", Modifier.weight(1f))
+                }
             }
-        }
-        item {
-            RiseCard {
-                SectionHeader("Thống kê 7 ngày")
-                Spacer(Modifier.height(20.dp))
-                WeeklyBars(state.weekly)
+            item {
+                RiseCard {
+                    SectionHeader("Thống kê 7 ngày")
+                    Spacer(Modifier.height(20.dp))
+                    WeeklyBars(state.weekly)
+                }
             }
-        }
-        item {
-            SectionHeader("Huy hiệu", action = "Xem tất cả")
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AchievementMini("early", "Chim sớm", Icons.Rounded.Bolt, RiseWarning, Modifier.weight(1f), onAction)
-                AchievementMini("streak", "Chuỗi 7", Icons.Rounded.LocalFireDepartment, RisePrimary, Modifier.weight(1f), onAction)
-                AchievementMini("steady", "Bền bỉ", Icons.Rounded.EmojiEvents, RiseSecondary, Modifier.weight(1f), onAction)
+            item {
+                SectionHeader("Huy hiệu", action = "Xem tất cả")
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AchievementMini("early", "Chim sớm", Icons.Rounded.Bolt, RiseWarning, Modifier.weight(1f), onAction)
+                    AchievementMini("streak", "Chuỗi 7", Icons.Rounded.LocalFireDepartment, RisePrimary, Modifier.weight(1f), onAction)
+                    AchievementMini("steady", "Bền bỉ", Icons.Rounded.EmojiEvents, RiseSecondary, Modifier.weight(1f), onAction)
+                }
             }
-        }
-        item { SectionHeader("Phiên gần đây", action = "Xem tất cả") }
-        items(state.sessions.take(5), key = { it.id }) { session ->
-            SessionRow(session) { onAction(HomeAction.OpenSession(session.id)) }
+            item { SectionHeader("Phiên gần đây", action = "Xem tất cả") }
+            items(state.sessions.take(5), key = { it.id }) { session ->
+                SessionRow(session) { onAction(HomeAction.OpenSession(session.id)) }
+            }
+        } else {
+            item {
+                RiseCard {
+                    IconBadge(Icons.Rounded.Insights, RiseSecondary)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Thống kê sẽ xuất hiện sau", style = MaterialTheme.typography.titleMedium)
+                    Text("Chuỗi, tỷ lệ thành công và thành tựu sẽ được ghi nhận khi bạn bắt đầu sử dụng báo thức.", color = RiseTextMuted)
+                }
+            }
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
@@ -228,4 +246,3 @@ fun sampleSessions() = listOf(
     WakeSessionUi("s5", "Thứ Hai", "06:30", "—", "Camera không khả dụng", SessionOutcome.TechnicalError),
     WakeSessionUi("s6", "Chủ Nhật", "07:12", "1p 20s", "QR · Toán", SessionOutcome.Completed),
 )
-

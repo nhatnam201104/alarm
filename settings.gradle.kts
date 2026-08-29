@@ -25,6 +25,8 @@ include(
     ":core:navigation",
     ":core:testing",
     ":domain",
+    ":data:local",
+    ":engine:alarm",
     ":feature:onboarding",
     ":feature:home",
     ":feature:alarms",
@@ -32,4 +34,3 @@ include(
     ":feature:wake",
     ":feature:settings",
 )
-

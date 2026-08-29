@@ -3,14 +3,16 @@ package com.risealarm.feature.wake
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,86 @@ sealed interface WakeAction {
     data object Finish : WakeAction
     data object Back : WakeAction
     data class SubmitAnswer(val answer: String) : WakeAction
+}
+
+@Composable
+fun ManualDismissAlarmScreen(
+    time: String,
+    label: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isHolding by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isHolding) {
+        if (!isHolding) {
+            progress = 0f
+            return@LaunchedEffect
+        }
+        val startedAt = withFrameNanos { it }
+        while (isHolding && progress < 1f) {
+            val now = withFrameNanos { it }
+            progress = ((now - startedAt) / 3_000_000_000f).coerceIn(0f, 1f)
+        }
+        if (isHolding && progress >= 1f) {
+            isHolding = false
+            onDismiss()
+        }
+    }
+
+    CompositionLocalProvider(LocalContentColor provides RiseText) {
+        Box(
+            modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    colors = listOf(RisePrimary.copy(alpha = 0.28f), RiseBackground),
+                    center = Offset.Unspecified,
+                    radius = 950f,
+                ),
+            ).padding(24.dp),
+        ) {
+            StatusChip("ĐANG BÁO THỨC", RiseWarning, Modifier.align(Alignment.TopCenter), Icons.Rounded.NotificationsActive)
+            Column(
+                Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                IconBadge(Icons.Rounded.Alarm, RisePrimary, size = 124.dp)
+                Spacer(Modifier.height(28.dp))
+                Text(time, style = MaterialTheme.typography.displayLarge)
+                Text(label.ifBlank { "Đến giờ thức dậy" }, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(12.dp))
+                Text("Vision chưa được bật trong phiên bản MVP này.", color = RiseTextMuted, textAlign = TextAlign.Center)
+            }
+            Column(Modifier.align(Alignment.BottomCenter), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(22.dp))
+                        .background(if (isHolding) RisePrimary.copy(alpha = .85f) else RiseSurfaceHigh)
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                isHolding = true
+                                waitForUpOrCancellation()
+                                isHolding = false
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxSize(),
+                        color = RisePrimary.copy(alpha = .28f),
+                        trackColor = Color.Transparent,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Rounded.TouchApp, null)
+                        Text(if (isHolding) "Tiếp tục giữ… ${(progress * 3).toInt() + 1}/3" else "Giữ 3 giây để tắt", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Thả tay trước 3 giây sẽ bắt đầu lại.", color = RiseTextMuted, textAlign = TextAlign.Center)
+            }
+        }
+    }
 }
 
 @Composable

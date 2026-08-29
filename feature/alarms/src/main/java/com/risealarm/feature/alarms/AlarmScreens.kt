@@ -5,22 +5,31 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.risealarm.core.designsystem.*
 import kotlinx.serialization.Serializable
+import kotlin.math.absoluteValue
 
 @Serializable data object AlarmListRoute
 @Serializable data class AlarmEditorRoute(val alarmId: String? = null)
@@ -37,6 +46,10 @@ sealed interface AlarmAction {
     data object OpenDiagnostics : AlarmAction
     data object OpenSettings : AlarmAction
     data object TestAlarm : AlarmAction
+    data class SetTime(val hour: Int, val minute: Int) : AlarmAction
+    data class SetLabel(val value: String) : AlarmAction
+    data class ToggleDay(val isoDay: Int) : AlarmAction
+    data class SetVibration(val enabled: Boolean) : AlarmAction
     data object Save : AlarmAction
     data object Back : AlarmAction
 }
@@ -57,6 +70,9 @@ data class AlarmListUiState(
     val alarms: List<AlarmItemUi> = sampleAlarms(),
     val isLoading: Boolean = false,
     val showEmpty: Boolean = false,
+    val readinessReady: Boolean = true,
+    val readinessTitle: String = "Sẵn sàng cho 06:30",
+    val readinessDetail: String = "Quyền và hệ thống báo thức đã được kiểm tra",
 )
 
 @Composable
@@ -74,7 +90,7 @@ fun AlarmListScreen(state: AlarmListUiState, onAction: (AlarmAction) -> Unit, mo
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Báo thức", style = MaterialTheme.typography.headlineLarge)
-                            Text("3 alarm · 2 đang bật", color = RiseTextMuted)
+                            Text("${state.alarms.size} báo thức · ${state.alarms.count { it.enabled }} đang bật", color = RiseTextMuted)
                         }
                         IconButton(onClick = { onAction(AlarmAction.OpenDiagnostics) }) {
                             Icon(Icons.Rounded.HealthAndSafety, "Kiểm tra độ tin cậy", tint = RiseWarning)
@@ -82,12 +98,13 @@ fun AlarmListScreen(state: AlarmListUiState, onAction: (AlarmAction) -> Unit, mo
                     }
                 }
                 item {
-                    RiseCard(containerColor = RiseVerified.copy(alpha = 0.08f)) {
+                    val readinessColor = if (state.readinessReady) RiseVerified else RiseWarning
+                    RiseCard(containerColor = readinessColor.copy(alpha = 0.08f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Verified, null, tint = RiseVerified)
+                            Icon(if (state.readinessReady) Icons.Rounded.Verified else Icons.Rounded.Warning, null, tint = readinessColor)
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                Text("Sẵn sàng cho 06:30", color = RiseVerified, style = MaterialTheme.typography.titleMedium)
-                                Text("Quyền và protocol đã được kiểm tra", color = RiseTextMuted)
+                                Text(state.readinessTitle, color = readinessColor, style = MaterialTheme.typography.titleMedium)
+                                Text(state.readinessDetail, color = RiseTextMuted)
                             }
                         }
                     }
@@ -156,11 +173,15 @@ private fun LoadingAlarms() {
 
 @Immutable
 data class AlarmEditorUiState(
-    val time: String = "06:30",
+    val id: String? = null,
+    val hour: Int = 6,
+    val minute: Int = 30,
     val label: String = "Thức dậy đi làm",
-    val selectedDays: Set<String> = setOf("T2", "T3", "T4", "T5", "T6"),
-    val sound: String = "Morning Pulse",
+    val selectedDays: Set<Int> = setOf(1, 2, 3, 4, 5),
     val vibration: Boolean = true,
+    val enabled: Boolean = true,
+    val isSaving: Boolean = false,
+    val error: String? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,56 +189,207 @@ data class AlarmEditorUiState(
 fun AlarmEditorScreen(state: AlarmEditorUiState, onAction: (AlarmAction) -> Unit) {
     Scaffold(
         containerColor = RiseBackground,
-        topBar = { CenterAlignedTopAppBar(title = { Text("Thêm báo thức") }, navigationIcon = { IconButton({ onAction(AlarmAction.Back) }) { Icon(Icons.Rounded.Close, "Đóng") } }) },
-        bottomBar = { Box(Modifier.padding(20.dp)) { RisePrimaryButton("Tiếp tục", { onAction(AlarmAction.Continue) }) } },
+        topBar = { CenterAlignedTopAppBar(title = { Text(if (state.id == null) "Thêm báo thức" else "Sửa báo thức") }, navigationIcon = { IconButton({ onAction(AlarmAction.Back) }) { Icon(Icons.Rounded.Close, "Đóng") } }) },
+        bottomBar = { Box(Modifier.padding(20.dp)) { RisePrimaryButton(if (state.isSaving) "Đang lưu…" else "Lưu báo thức", { onAction(AlarmAction.Save) }, enabled = !state.isSaving && state.label.isNotBlank()) } },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 RiseCard(containerColor = Color(0xFF171724)) {
-                    Text("Thời gian", color = RiseTextMuted)
-                    Box(Modifier.fillMaxWidth().padding(vertical = 26.dp), contentAlignment = Alignment.Center) {
-                        Text(state.time, style = MaterialTheme.typography.displayLarge)
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        StatusChip("AM", RisePrimary)
-                    }
+                    Text("Thời gian", style = MaterialTheme.typography.titleMedium)
+                    Text("Cuộn từng cột để chọn", color = RiseTextMuted, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    TimeWheelPicker(
+                        hour = state.hour,
+                        minute = state.minute,
+                        onTimeChange = { hour, minute -> onAction(AlarmAction.SetTime(hour, minute)) },
+                    )
                 }
             }
             item {
                 Text("Lặp lại", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN").forEach { day ->
-                        FilterChip(selected = day in state.selectedDays, onClick = {}, label = { Text(day) })
+                    listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN").forEachIndexed { index, day ->
+                        FilterChip(selected = index + 1 in state.selectedDays, onClick = { onAction(AlarmAction.ToggleDay(index + 1)) }, label = { Text(day) })
                     }
                 }
             }
-            item { EditorField("Nhãn", state.label, Icons.Rounded.Label) }
-            item { EditorField("Âm thanh", state.sound, Icons.Rounded.MusicNote) }
+            item {
+                OutlinedTextField(
+                    value = state.label,
+                    onValueChange = { onAction(AlarmAction.SetLabel(it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Nhãn") },
+                    leadingIcon = { Icon(Icons.Rounded.Label, null) },
+                    singleLine = true,
+                )
+            }
             item {
                 RiseCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconBadge(Icons.Rounded.Vibration, RiseSecondary)
                         Column(Modifier.weight(1f).padding(start = 12.dp)) { Text("Rung", style = MaterialTheme.typography.titleMedium); Text("Nhịp tăng dần", color = RiseTextMuted) }
-                        Switch(state.vibration, onCheckedChange = {})
+                        Switch(state.vibration, onCheckedChange = { onAction(AlarmAction.SetVibration(it)) })
                     }
                 }
             }
             item {
-                RiseCard(Modifier.clickable { onAction(AlarmAction.OpenProtocol) }, containerColor = RiseSecondary.copy(alpha = 0.10f)) {
+                RiseCard(containerColor = RiseSecondary.copy(alpha = 0.10f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconBadge(Icons.Rounded.AccountTree, RiseSecondary)
+                        IconBadge(Icons.Rounded.TouchApp, RiseSecondary)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text("Wake Protocol", style = MaterialTheme.typography.titleMedium)
-                            Text("QR phòng tắm · Squat 15 · Toán 3 câu", color = RiseTextMuted)
+                            Text("Cách tắt trong MVP", style = MaterialTheme.typography.titleMedium)
+                            Text("Giữ nút 3 giây. Vision sẽ được thêm ở phiên bản sau.", color = RiseTextMuted)
                         }
-                        Icon(Icons.Rounded.ChevronRight, "Chỉnh protocol")
                     }
+                }
+            }
+            state.error?.let { message -> item { Text(message, color = RiseError) } }
+            if (state.id != null) {
+                item {
+                    OutlinedButton(
+                        onClick = { onAction(AlarmAction.Delete(state.id)) },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RiseError),
+                    ) { Icon(Icons.Rounded.Delete, null); Text("  Xóa báo thức") }
                 }
             }
             item { Spacer(Modifier.height(90.dp)) }
         }
     }
 }
+
+@Composable
+private fun TimeWheelPicker(
+    hour: Int,
+    minute: Int,
+    onTimeChange: (hour: Int, minute: Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(WheelViewportHeight)) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(WheelItemHeight)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(RisePrimary.copy(alpha = 0.11f)),
+            )
+            Column(Modifier.align(Alignment.Center).fillMaxWidth()) {
+                HorizontalDivider(color = RisePrimary.copy(alpha = 0.24f))
+                Spacer(Modifier.height(WheelItemHeight))
+                HorizontalDivider(color = RisePrimary.copy(alpha = 0.24f))
+            }
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                WheelColumn(
+                    selected = hour,
+                    values = 0..23,
+                    label = "Giờ",
+                    onValueChange = { onTimeChange(it, minute) },
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    ":",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = RisePrimary,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                WheelColumn(
+                    selected = minute,
+                    values = 0..59,
+                    label = "Phút",
+                    onValueChange = { onTimeChange(hour, it) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            Text("GIỜ", color = RiseTextMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(36.dp))
+            Text("PHÚT", color = RiseTextMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun WheelColumn(
+    selected: Int,
+    values: IntRange,
+    label: String,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val valueCount = values.count()
+    val selectedIndex = (selected - values.first).coerceIn(0, valueCount - 1)
+    val middlePage = WheelPageCount / 2
+    val initialPage = remember(values, selectedIndex) {
+        middlePage - (middlePage % valueCount) + selectedIndex
+    }
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { WheelPageCount })
+    val hapticFeedback = LocalHapticFeedback.current
+    var readyForFeedback by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pagerState.settledPage) {
+        val settledValue = values.first + (pagerState.settledPage % valueCount)
+        if (readyForFeedback && settledValue != selected) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onValueChange(settledValue)
+        }
+        readyForFeedback = true
+    }
+
+    LaunchedEffect(selected) {
+        val currentIndex = pagerState.settledPage % valueCount
+        var delta = selectedIndex - currentIndex
+        if (delta > valueCount / 2) delta -= valueCount
+        if (delta < -valueCount / 2) delta += valueCount
+        if (delta != 0 && !pagerState.isScrollInProgress) {
+            pagerState.scrollToPage(pagerState.settledPage + delta)
+        }
+    }
+
+    VerticalPager(
+        state = pagerState,
+        modifier = modifier
+            .fillMaxHeight()
+            .semantics { contentDescription = "$label, ${selected.toString().padStart(2, '0')}" },
+        pageSize = PageSize.Fixed(WheelItemHeight),
+        contentPadding = PaddingValues(vertical = WheelContentPadding),
+        beyondViewportPageCount = 2,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) { page ->
+        val signedPageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+        val pageOffset = signedPageOffset.absoluteValue
+        val proximity = 1f - (pageOffset.coerceIn(0f, 2f) / 2f)
+        val value = values.first + (page % valueCount)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(WheelItemHeight)
+                .graphicsLayer {
+                    alpha = 0.30f + (0.70f * proximity)
+                    scaleX = 0.86f + (0.14f * proximity)
+                    scaleY = 0.86f + (0.14f * proximity)
+                    rotationX = signedPageOffset.coerceIn(-2f, 2f) * -14f
+                    cameraDistance = 24f * density
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = value.toString().padStart(2, '0'),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = if (pageOffset < 0.5f) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (pageOffset < 0.5f) RiseText else RiseTextMuted,
+            )
+        }
+    }
+}
+
+private val WheelItemHeight = 56.dp
+private val WheelViewportHeight = 280.dp
+private val WheelContentPadding = 112.dp
+private const val WheelPageCount = 10_000
 
 @Composable
 private fun EditorField(label: String, value: String, icon: ImageVector) {
@@ -312,4 +484,3 @@ fun sampleReadinessChecks() = listOf(
     ReadinessCheckUi("Pin & tự khởi động", "Không bị giới hạn nền", CheckStatus.Ready, Icons.Rounded.BatteryChargingFull),
     ReadinessCheckUi("Hiệu chuẩn Squat", "Còn hiệu lực 24 ngày", CheckStatus.Ready, Icons.Rounded.AccessibilityNew),
 )
-
