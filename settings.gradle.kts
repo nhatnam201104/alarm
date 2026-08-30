@@ -27,6 +27,7 @@ include(
     ":domain",
     ":data:local",
     ":engine:alarm",
+    ":engine:vision",
     ":feature:onboarding",
     ":feature:home",
     ":feature:alarms",

@@ -3,15 +3,19 @@ package com.risealarm.data.local
 import android.content.Context
 import com.risealarm.domain.AlarmDefinition
 import com.risealarm.domain.AlarmRepository
+import com.risealarm.domain.WakeSession
+import com.risealarm.domain.WakeSessionRepository
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
 data class AlarmSnapshot(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val alarms: List<AlarmDefinition> = emptyList(),
-)
+) {
+    companion object { const val CURRENT_SCHEMA_VERSION = 2 }
+}
 
 class AlarmJsonCodec(
     private val json: Json = Json {
@@ -24,8 +28,66 @@ class AlarmJsonCodec(
 
     fun decode(value: String?): List<AlarmDefinition> {
         if (value.isNullOrBlank()) return emptyList()
-        return runCatching { json.decodeFromString<AlarmSnapshot>(value).alarms }
+        return runCatching {
+            val snapshot = json.decodeFromString<AlarmSnapshot>(value)
+            if (snapshot.schemaVersion > AlarmSnapshot.CURRENT_SCHEMA_VERSION) emptyList() else snapshot.alarms
+        }
             .getOrDefault(emptyList())
+    }
+}
+
+class WakeSessionStore private constructor(
+    context: Context,
+    private val json: Json,
+) : WakeSessionRepository {
+    constructor(context: Context) : this(context, Json { ignoreUnknownKeys = true; encodeDefaults = true })
+    private val preferences = context.createDeviceProtectedStorageContext()
+        .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    @Synchronized
+    override fun active(): WakeSession? = preferences.getString(KEY_ACTIVE, null)?.let { value ->
+        runCatching { json.decodeFromString<WakeSession>(value) }.getOrNull()
+    }
+
+    @Synchronized
+    override fun replace(session: WakeSession): WakeSession {
+        val current = active()
+        if (current != null && current.sessionId != session.sessionId) {
+            val superseded = current.copy(
+                phase = com.risealarm.domain.WakeSessionPhase.Superseded,
+                revision = current.revision + 1,
+                lastUpdatedEpochMillis = session.firedAtEpochMillis,
+            )
+            preferences.edit().putString(KEY_LAST_SUPERSEDED, json.encodeToString(superseded)).commit()
+        }
+        preferences.edit().putString(KEY_ACTIVE, json.encodeToString(session)).commit()
+        return session
+    }
+
+    @Synchronized
+    override fun update(
+        sessionId: String,
+        expectedRevision: Long,
+        transform: (WakeSession) -> WakeSession,
+    ): WakeSession? {
+        val current = active() ?: return null
+        if (current.sessionId != sessionId || current.revision != expectedRevision) return null
+        val updated = transform(current)
+        if (updated.sessionId != current.sessionId || updated.revision <= current.revision) return null
+        return if (preferences.edit().putString(KEY_ACTIVE, json.encodeToString(updated)).commit()) updated else null
+    }
+
+    @Synchronized
+    override fun clear(sessionId: String): Boolean {
+        val current = active() ?: return true
+        if (current.sessionId != sessionId) return false
+        return preferences.edit().remove(KEY_ACTIVE).commit()
+    }
+
+    private companion object {
+        const val FILE_NAME = "rise_wake_session"
+        const val KEY_ACTIVE = "active_v1"
+        const val KEY_LAST_SUPERSEDED = "last_superseded_v1"
     }
 }
 

@@ -23,11 +23,13 @@ import com.risealarm.core.designsystem.RiseMainScaffold
 import com.risealarm.core.designsystem.RiseTheme
 import com.risealarm.core.designsystem.RiseTopLevel
 import com.risealarm.domain.AlarmDefinition
+import com.risealarm.domain.ExerciseType
 import com.risealarm.feature.alarms.AlarmAction
 import com.risealarm.feature.alarms.AlarmEditorScreen
 import com.risealarm.feature.alarms.AlarmItemUi
 import com.risealarm.feature.alarms.AlarmListScreen
 import com.risealarm.feature.alarms.AlarmListUiState
+import com.risealarm.feature.alarms.displayName
 import com.risealarm.feature.home.HomeAction
 import com.risealarm.feature.home.HomeDashboardScreen
 import com.risealarm.feature.home.HomeUiState
@@ -42,6 +44,25 @@ class MainActivity : ComponentActivity() {
     private var selectedTab by mutableStateOf(RiseTopLevel.Home)
     private var deepLinkedAlarmId by mutableStateOf<String?>(null)
     private var capabilities by mutableStateOf(AlarmCapabilities(false, false, false))
+    private var pendingCalibrationExercise: ExerciseType? = null
+    private val calibrationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            alarmViewModel.markCalibrated()
+            requestActivityRecognitionIfNeeded()
+        }
+    }
+    private val activityRecognitionPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) Toast.makeText(this, "Nếu camera lỗi, RISE sẽ dùng lắc máy hoặc toán thay cho bước chân.", Toast.LENGTH_LONG).show()
+    }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val exercise = pendingCalibrationExercise
+        pendingCalibrationExercise = null
+        if (granted && exercise != null) {
+            calibrationLauncher.launch(CalibrationActivity.intent(this, exercise))
+        } else if (!granted) {
+            Toast.makeText(this, "Cần quyền camera để hiệu chuẩn bài tập.", Toast.LENGTH_LONG).show()
+        }
+    }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         capabilities = readAlarmCapabilities()
         if (granted) {
@@ -144,12 +165,31 @@ class MainActivity : ComponentActivity() {
             is AlarmAction.SetLabel -> viewModel.setLabel(action.value)
             is AlarmAction.ToggleDay -> viewModel.toggleDay(action.isoDay)
             is AlarmAction.SetVibration -> viewModel.setVibration(action.enabled)
+            is AlarmAction.SelectExercise -> viewModel.selectExercise(action.exercise)
+            is AlarmAction.ChangeExerciseTarget -> viewModel.changeExerciseTarget(action.delta)
+            AlarmAction.CalibrateExercise -> startCalibration(viewModel)
             AlarmAction.Save -> if (viewModel.save()) {
                 ensureAlarmCapabilities()
                 Toast.makeText(this, "Đã lưu báo thức", Toast.LENGTH_SHORT).show()
             }
             is AlarmAction.Delete -> viewModel.delete(action.id)
             else -> Unit
+        }
+    }
+
+    private fun startCalibration(viewModel: AlarmViewModel) {
+        val exercise = viewModel.editor.value?.exercise ?: return
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            calibrationLauncher.launch(CalibrationActivity.intent(this, exercise))
+        } else {
+            pendingCalibrationExercise = exercise
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun requestActivityRecognitionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 29 && androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            activityRecognitionPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
         }
     }
 
@@ -189,7 +229,10 @@ private fun List<AlarmDefinition>.toAlarmListState(capabilities: AlarmCapabiliti
                 time = "%02d:%02d".format(alarm.hour, alarm.minute),
                 label = alarm.label,
                 days = alarm.repeatDays.toDayText(),
-                protocol = "Giữ 3 giây để tắt",
+                protocol = alarm.challenge?.let { challenge ->
+                    val unit = if (challenge.isHold) "${challenge.target} giây" else "${challenge.target} rep"
+                    "${challenge.exercise.displayName()} · $unit"
+                } ?: "Giữ 3 giây · alarm cũ",
                 enabled = alarm.enabled,
                 ready = !alarm.enabled || capabilities.ready,
             )

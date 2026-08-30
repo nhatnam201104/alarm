@@ -9,6 +9,9 @@ navigation-compose = "2.8.9"
 serialization = "1.8.0"
 immutable = "0.3.8"
 junit = "4.13.2"
+camerax = "1.5.0"
+mediapipe = "0.10.26"
+mlkit-barcode = "17.3.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
@@ -28,6 +31,12 @@ androidx-compose-material-icons-extended = { module = "androidx.compose.material
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "immutable" }
 junit = { module = "junit:junit", version.ref = "junit" }
+androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+mediapipe-tasks-vision = { module = "com.google.mediapipe:tasks-vision", version.ref = "mediapipe" }
+mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkit-barcode" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
