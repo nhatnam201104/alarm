@@ -27,6 +27,16 @@ class AlarmRingingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private val fallbackHandler = Handler(Looper.getMainLooper())
+    private var activeSessionId: String? = null
+    private val wakeLockRenewal = object : Runnable {
+        override fun run() {
+            val sessionId = activeSessionId ?: return
+            val active = (application as RiseApplication).wakeSessionStore.active()
+            if (active?.sessionId != sessionId) return
+            acquireWakeLock()
+            fallbackHandler.postDelayed(this, WAKE_LOCK_RENEW_AFTER_MS)
+        }
+    }
     private val fallbackTone = object : Runnable {
         override fun run() {
             toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 4_000)
@@ -38,42 +48,53 @@ class AlarmRingingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            val requestedSessionId = intent.getStringExtra(EXTRA_SESSION_ID)
+            val active = (application as RiseApplication).wakeSessionStore.active()
+            if (requestedSessionId.isNullOrBlank() || active?.sessionId != requestedSessionId || activeSessionId != requestedSessionId) {
+                return START_REDELIVER_INTENT
+            }
+            (application as RiseApplication).wakeSessionStore.clear(requestedSessionId)
             stopSelf()
             return START_NOT_STICKY
         }
         if (intent?.action != ACTION_START) return START_NOT_STICKY
 
         val alarmId = intent.getStringExtra(EXTRA_ID) ?: return START_NOT_STICKY
+        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: return START_NOT_STICKY
         val hour = intent.getIntExtra(EXTRA_HOUR, 0)
         val minute = intent.getIntExtra(EXTRA_MINUTE, 0)
         val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         val vibrationEnabled = intent.getBooleanExtra(EXTRA_VIBRATION, true)
 
+        activeSessionId = sessionId
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(alarmId, hour, minute, label))
+        startForeground(NOTIFICATION_ID, buildNotification(alarmId, sessionId, hour, minute, label))
         acquireWakeLock()
-        startAudio()
-        if (vibrationEnabled) startVibration()
-        return START_NOT_STICKY
+        fallbackHandler.removeCallbacks(wakeLockRenewal)
+        fallbackHandler.postDelayed(wakeLockRenewal, WAKE_LOCK_RENEW_AFTER_MS)
+        if (mediaPlayer == null && toneGenerator == null) startAudio()
+        if (vibrationEnabled && vibrator == null) startVibration()
+        return START_REDELIVER_INTENT
     }
 
-    private fun buildNotification(alarmId: String, hour: Int, minute: Int, label: String) =
+    private fun buildNotification(alarmId: String, sessionId: String, hour: Int, minute: Int, label: String) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_alarm_notification)
             .setContentTitle("%02d:%02d · %s".format(hour, minute, label.ifBlank { "Báo thức RISE" }))
-            .setContentText("Giữ nút 3 giây để tắt báo thức")
+            .setContentText("Hoàn thành bài tập đã chọn để dừng báo thức")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setContentIntent(activityPendingIntent(alarmId))
-            .setFullScreenIntent(activityPendingIntent(alarmId), true)
+            .setContentIntent(activityPendingIntent(alarmId, sessionId))
+            .setFullScreenIntent(activityPendingIntent(alarmId, sessionId), true)
             .build()
 
-    private fun activityPendingIntent(alarmId: String): PendingIntent {
+    private fun activityPendingIntent(alarmId: String, sessionId: String): PendingIntent {
         val intent = Intent(this, AlarmActivity::class.java)
             .putExtra(EXTRA_ID, alarmId)
+            .putExtra(EXTRA_SESSION_ID, sessionId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         return PendingIntent.getActivity(
             this,
@@ -96,9 +117,10 @@ class AlarmRingingService : Service() {
 
     private fun acquireWakeLock() {
         val powerManager = getSystemService(PowerManager::class.java)
+        wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RISE:AlarmRinging").apply {
             setReferenceCounted(false)
-            acquire(10 * 60 * 1_000L)
+            acquire(WAKE_LOCK_LEASE_MS)
         }
     }
 
@@ -156,6 +178,7 @@ class AlarmRingingService : Service() {
 
     override fun onDestroy() {
         fallbackHandler.removeCallbacksAndMessages(null)
+        activeSessionId = null
         runCatching { mediaPlayer?.stop() }
         mediaPlayer?.release()
         mediaPlayer = null
@@ -177,12 +200,16 @@ class AlarmRingingService : Service() {
         private const val ACTION_START = "com.risealarm.action.START_RINGING"
         const val ACTION_STOP = "com.risealarm.action.STOP_RINGING"
         const val EXTRA_ID = "alarm_id"
+        const val EXTRA_SESSION_ID = "wake_session_id"
         private const val EXTRA_HOUR = "alarm_hour"
         private const val EXTRA_MINUTE = "alarm_minute"
         private const val EXTRA_LABEL = "alarm_label"
         private const val EXTRA_VIBRATION = "alarm_vibration"
 
-        fun startIntent(context: Context, alarmId: String, hour: Int, minute: Int, label: String, vibration: Boolean) =
+        private const val WAKE_LOCK_LEASE_MS = 2 * 60 * 1_000L
+        private const val WAKE_LOCK_RENEW_AFTER_MS = 90 * 1_000L
+
+        fun startIntent(context: Context, alarmId: String, hour: Int, minute: Int, label: String, vibration: Boolean, sessionId: String) =
             Intent(context, AlarmRingingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_ID, alarmId)
@@ -190,7 +217,10 @@ class AlarmRingingService : Service() {
                 .putExtra(EXTRA_MINUTE, minute)
                 .putExtra(EXTRA_LABEL, label)
                 .putExtra(EXTRA_VIBRATION, vibration)
+                .putExtra(EXTRA_SESSION_ID, sessionId)
 
-        fun stopIntent(context: Context) = Intent(context, AlarmRingingService::class.java).setAction(ACTION_STOP)
+        fun stopIntent(context: Context, sessionId: String) = Intent(context, AlarmRingingService::class.java)
+            .setAction(ACTION_STOP)
+            .putExtra(EXTRA_SESSION_ID, sessionId)
     }
 }

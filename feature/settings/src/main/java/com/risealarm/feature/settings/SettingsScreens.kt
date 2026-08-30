@@ -45,7 +45,7 @@ fun SettingsScreen(onAction: (SettingsAction) -> Unit, modifier: Modifier = Modi
             SettingsRowUi("oem", "Trợ giúp thiết bị", "Pin, tự khởi động và OEM", Icons.Rounded.Smartphone, RiseSecondary),
         ),
         "Cá nhân hóa" to listOf(
-            SettingsRowUi("exercise", "Bài tập & hiệu chuẩn", "4/5 bài sẵn sàng", Icons.Rounded.FitnessCenter, RiseVerified),
+            SettingsRowUi("exercise", "Bài tập & hiệu chuẩn", "4 bài: hít đất, gập bụng, giữ squat, plank", Icons.Rounded.FitnessCenter, RiseVerified),
             SettingsRowUi("appearance", "Giao diện", "Tối · Midnight Performance", Icons.Rounded.DarkMode, RiseSecondary),
             SettingsRowUi("language", "Ngôn ngữ", "Tiếng Việt", Icons.Rounded.Language, RiseSecondary),
         ),
@@ -146,7 +146,6 @@ data class ExerciseLibraryItemUi(val name: String, val detail: String, val ready
 fun ExerciseLibraryScreen(onAction: (SettingsAction) -> Unit) {
     val items = listOf(
         ExerciseLibraryItemUi("Push-up", "Đã hiệu chuẩn · 24 ngày", true, Icons.Rounded.FitnessCenter),
-        ExerciseLibraryItemUi("Squat", "Đã hiệu chuẩn · 24 ngày", true, Icons.Rounded.AccessibilityNew),
         ExerciseLibraryItemUi("Gập bụng", "Cần hiệu chuẩn", false, Icons.Rounded.SelfImprovement),
         ExerciseLibraryItemUi("Giữ squat", "Đã hiệu chuẩn · 18 ngày", true, Icons.Rounded.Timer),
         ExerciseLibraryItemUi("Plank", "Đã hiệu chuẩn · 18 ngày", true, Icons.Rounded.SelfImprovement),
@@ -204,4 +203,3 @@ fun OemHelpScreen(onAction: (SettingsAction) -> Unit) {
         }
     }
 }
-

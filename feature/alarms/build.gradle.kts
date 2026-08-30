@@ -17,7 +17,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:designsystem"))
-    implementation(project(":domain"))
+    api(project(":domain"))
     implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

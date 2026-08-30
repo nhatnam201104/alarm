@@ -3,6 +3,8 @@ package com.risealarm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import com.risealarm.domain.AlarmDefinition
+import com.risealarm.domain.ExerciseChallenge
+import com.risealarm.domain.ExerciseType
 import com.risealarm.engine.alarm.NextOccurrenceCalculator
 import com.risealarm.feature.alarms.AlarmEditorUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun setTime(hour: Int, minute: Int) = updateEditor { copy(hour = hour, minute = minute, error = null) }
     fun setLabel(value: String) = updateEditor { copy(label = value.take(60), error = null) }
     fun setVibration(enabled: Boolean) = updateEditor { copy(vibration = enabled) }
+    fun selectExercise(exercise: ExerciseType) = updateEditor {
+        val hold = exercise == ExerciseType.SquatHold || exercise == ExerciseType.Plank
+        copy(exercise = exercise, exerciseTarget = if (hold) 20 else 10, calibratedAtEpochMillis = null, error = null)
+    }
+    fun changeExerciseTarget(delta: Int) = updateEditor {
+        val hold = exercise == ExerciseType.SquatHold || exercise == ExerciseType.Plank
+        copy(exerciseTarget = (exerciseTarget + delta).coerceIn(if (hold) 5..120 else 1..50), calibratedAtEpochMillis = null)
+    }
+    fun markCalibrated() = updateEditor { copy(calibratedAtEpochMillis = System.currentTimeMillis(), error = null) }
     fun toggleDay(day: Int) = updateEditor {
         copy(selectedDays = if (day in selectedDays) selectedDays - day else selectedDays + day)
     }
@@ -55,6 +66,10 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             _editor.value = state.copy(error = "Vui lòng nhập nhãn báo thức.")
             return false
         }
+        if (state.calibratedAtEpochMillis == null) {
+            _editor.value = state.copy(error = "Vui lòng hiệu chuẩn bài tập trước khi lưu.")
+            return false
+        }
         val alarm = AlarmDefinition(
             id = state.id ?: UUID.randomUUID().toString(),
             hour = state.hour,
@@ -63,6 +78,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             repeatDays = state.selectedDays,
             vibration = state.vibration,
             enabled = state.enabled,
+            challenge = ExerciseChallenge(
+                exercise = state.exercise,
+                target = state.exerciseTarget,
+                calibrationVersion = 1,
+                calibratedAtEpochMillis = state.calibratedAtEpochMillis,
+            ),
         )
         if (!app.alarmStore.upsert(alarm)) {
             _editor.value = state.copy(error = "Không thể lưu báo thức trên thiết bị.")
@@ -103,5 +124,8 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         selectedDays = repeatDays,
         vibration = vibration,
         enabled = enabled,
+        exercise = challenge?.exercise ?: ExerciseType.PushUp,
+        exerciseTarget = challenge?.target ?: 10,
+        calibratedAtEpochMillis = challenge?.calibratedAtEpochMillis,
     )
 }

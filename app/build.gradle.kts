@@ -29,6 +29,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":data:local"))
     implementation(project(":engine:alarm"))
+    implementation(project(":engine:vision"))
     implementation(project(":feature:home"))
     implementation(project(":feature:alarms"))
     implementation(project(":feature:settings"))

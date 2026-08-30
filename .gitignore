@@ -6,6 +6,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 .jtmp/
+.gradle-tmp/
 *.iml
 specs/
 

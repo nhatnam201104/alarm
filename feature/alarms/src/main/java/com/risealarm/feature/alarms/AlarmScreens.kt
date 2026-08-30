@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.risealarm.core.designsystem.*
+import com.risealarm.domain.ExerciseType
 import kotlinx.serialization.Serializable
 import kotlin.math.absoluteValue
 
@@ -50,6 +51,9 @@ sealed interface AlarmAction {
     data class SetLabel(val value: String) : AlarmAction
     data class ToggleDay(val isoDay: Int) : AlarmAction
     data class SetVibration(val enabled: Boolean) : AlarmAction
+    data class SelectExercise(val exercise: ExerciseType) : AlarmAction
+    data class ChangeExerciseTarget(val delta: Int) : AlarmAction
+    data object CalibrateExercise : AlarmAction
     data object Save : AlarmAction
     data object Back : AlarmAction
 }
@@ -180,6 +184,9 @@ data class AlarmEditorUiState(
     val selectedDays: Set<Int> = setOf(1, 2, 3, 4, 5),
     val vibration: Boolean = true,
     val enabled: Boolean = true,
+    val exercise: ExerciseType = ExerciseType.PushUp,
+    val exerciseTarget: Int = 10,
+    val calibratedAtEpochMillis: Long? = null,
     val isSaving: Boolean = false,
     val error: String? = null,
 )
@@ -190,7 +197,7 @@ fun AlarmEditorScreen(state: AlarmEditorUiState, onAction: (AlarmAction) -> Unit
     Scaffold(
         containerColor = RiseBackground,
         topBar = { CenterAlignedTopAppBar(title = { Text(if (state.id == null) "Thêm báo thức" else "Sửa báo thức") }, navigationIcon = { IconButton({ onAction(AlarmAction.Back) }) { Icon(Icons.Rounded.Close, "Đóng") } }) },
-        bottomBar = { Box(Modifier.padding(20.dp)) { RisePrimaryButton(if (state.isSaving) "Đang lưu…" else "Lưu báo thức", { onAction(AlarmAction.Save) }, enabled = !state.isSaving && state.label.isNotBlank()) } },
+        bottomBar = { Box(Modifier.padding(20.dp)) { RisePrimaryButton(if (state.isSaving) "Đang lưu…" else "Lưu báo thức", { onAction(AlarmAction.Save) }, enabled = !state.isSaving && state.label.isNotBlank() && state.calibratedAtEpochMillis != null) } },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -233,13 +240,48 @@ fun AlarmEditorScreen(state: AlarmEditorUiState, onAction: (AlarmAction) -> Unit
                 }
             }
             item {
-                RiseCard(containerColor = RiseSecondary.copy(alpha = 0.10f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconBadge(Icons.Rounded.TouchApp, RiseSecondary)
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text("Cách tắt trong MVP", style = MaterialTheme.typography.titleMedium)
-                            Text("Giữ nút 3 giây. Vision sẽ được thêm ở phiên bản sau.", color = RiseTextMuted)
+                Text("Bài tập để tắt báo thức", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExerciseType.entries.chunked(2).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { exercise ->
+                                FilterChip(
+                                    selected = state.exercise == exercise,
+                                    onClick = { onAction(AlarmAction.SelectExercise(exercise)) },
+                                    label = { Text(exercise.displayName()) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
+                    }
+                }
+            }
+            item {
+                val isHold = state.exercise == ExerciseType.SquatHold || state.exercise == ExerciseType.Plank
+                RiseCard(containerColor = RiseSecondary.copy(alpha = 0.10f)) {
+                    Text(if (isHold) "Thời gian giữ" else "Số lần lặp", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        FilledIconButton({ onAction(AlarmAction.ChangeExerciseTarget(if (isHold) -5 else -1)) }) { Icon(Icons.Rounded.Remove, "Giảm") }
+                        Text(
+                            if (isHold) "${state.exerciseTarget} giây" else "${state.exerciseTarget} rep",
+                            style = MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.padding(horizontal = 28.dp),
+                        )
+                        FilledIconButton({ onAction(AlarmAction.ChangeExerciseTarget(if (isHold) 5 else 1)) }) { Icon(Icons.Rounded.Add, "Tăng") }
+                    }
+                }
+            }
+            item {
+                RiseCard(containerColor = if (state.calibratedAtEpochMillis != null) RiseVerified.copy(alpha = .10f) else RiseWarning.copy(alpha = .10f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconBadge(if (state.calibratedAtEpochMillis != null) Icons.Rounded.Verified else Icons.Rounded.CenterFocusStrong, if (state.calibratedAtEpochMillis != null) RiseVerified else RiseWarning)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(if (state.calibratedAtEpochMillis != null) "Đã hiệu chuẩn" else "Cần hiệu chuẩn", style = MaterialTheme.typography.titleMedium)
+                            Text("Kiểm tra camera và tư thế trước khi lưu", color = RiseTextMuted)
+                        }
+                        TextButton({ onAction(AlarmAction.CalibrateExercise) }) { Text(if (state.calibratedAtEpochMillis != null) "Làm lại" else "Bắt đầu") }
                     }
                 }
             }
@@ -476,6 +518,13 @@ fun sampleAlarms() = listOf(
     AlarmItemUi("a2", "07:15", "Cuối tuần", "T7, CN", "QR · Plank", true, false),
     AlarmItemUi("a3", "05:45", "Chạy sáng", "T3, T5", "Bước chân · Toán", false, true),
 )
+
+fun ExerciseType.displayName(): String = when (this) {
+    ExerciseType.PushUp -> "Hít đất"
+    ExerciseType.SitUp -> "Gập bụng"
+    ExerciseType.SquatHold -> "Giữ squat"
+    ExerciseType.Plank -> "Plank"
+}
 
 fun sampleReadinessChecks() = listOf(
     ReadinessCheckUi("Exact alarm", "Được phép đặt báo thức chính xác", CheckStatus.Ready, Icons.Rounded.AlarmOn),

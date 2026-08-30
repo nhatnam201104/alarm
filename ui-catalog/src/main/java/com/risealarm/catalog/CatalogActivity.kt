@@ -70,9 +70,7 @@ private enum class CatalogScreen(val title: String, val group: String) {
     SensorSteps("Steps Mission", "Wake"),
     SensorShake("Shake Mission", "Wake"),
     SensorMath("Math Mission", "Wake"),
-    Emergency("Emergency Escape", "Wake"),
     Result("Wake Result", "Wake"),
-    ResultEscaped("Escaped Result", "Wake"),
     Privacy("Privacy & Local Data", "Settings"),
     History("Full History", "P1"),
     SessionDetail("Session Detail", "P1"),
@@ -150,9 +148,7 @@ private fun CatalogApp() {
         CatalogScreen.SensorSteps -> ActiveSensorMissionScreen(SensorMissionType.Steps, wakeActions(::navigate))
         CatalogScreen.SensorShake -> ActiveSensorMissionScreen(SensorMissionType.Shake, wakeActions(::navigate))
         CatalogScreen.SensorMath -> ActiveSensorMissionScreen(SensorMissionType.Math, wakeActions(::navigate))
-        CatalogScreen.Emergency -> EmergencyEscapeScreen(.72f, wakeActions(::navigate))
-        CatalogScreen.Result -> WakeResultScreen(false, wakeActions(::navigate))
-        CatalogScreen.ResultEscaped -> WakeResultScreen(true, wakeActions(::navigate))
+        CatalogScreen.Result -> WakeResultScreen(wakeActions(::navigate))
         CatalogScreen.Privacy -> PrivacyScreen(analyticsEnabled) { action ->
             when (action) { is SettingsAction.Toggle -> analyticsEnabled = action.enabled; SettingsAction.Back -> navigate(CatalogScreen.Settings); else -> Unit }
         }
@@ -293,8 +289,6 @@ private fun wakeActions(navigate: (CatalogScreen) -> Unit): (WakeAction) -> Unit
         WakeAction.Help -> navigate(CatalogScreen.TrackingLost)
         WakeAction.Retry -> navigate(CatalogScreen.VisionPushup)
         WakeAction.UseFallback -> navigate(CatalogScreen.SensorQr)
-        WakeAction.Emergency -> navigate(CatalogScreen.Emergency)
-        WakeAction.ConfirmEscape -> navigate(CatalogScreen.ResultEscaped)
         WakeAction.Finish -> navigate(CatalogScreen.AppDemo)
         WakeAction.Back -> navigate(CatalogScreen.Ringing)
         is WakeAction.SubmitAnswer -> navigate(CatalogScreen.Result)

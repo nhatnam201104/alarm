@@ -30,7 +30,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object RingingRoute
 @Serializable data object ActiveVisionRoute
 @Serializable data object ActiveSensorRoute
-@Serializable data object EmergencyEscapeRoute
 @Serializable data object WakeResultRoute
 
 sealed interface WakeAction {
@@ -38,8 +37,6 @@ sealed interface WakeAction {
     data object Help : WakeAction
     data object Retry : WakeAction
     data object UseFallback : WakeAction
-    data object Emergency : WakeAction
-    data object ConfirmEscape : WakeAction
     data object Finish : WakeAction
     data object Back : WakeAction
     data class SubmitAnswer(val answer: String) : WakeAction
@@ -132,9 +129,6 @@ fun AlarmRingingScreen(onAction: (WakeAction) -> Unit, modifier: Modifier = Modi
             Brush.radialGradient(listOf(RisePrimary.copy(alpha = 0.24f), RiseBackground), center = Offset.Unspecified, radius = 900f),
         ).padding(24.dp),
     ) {
-        IconButton(onClick = { onAction(WakeAction.Emergency) }, modifier = Modifier.align(Alignment.TopEnd)) {
-            Icon(Icons.Rounded.HealthAndSafety, "Tùy chọn khẩn cấp", tint = RiseTextMuted)
-        }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(132.dp).clip(CircleShape).background(RisePrimary.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(92.dp).clip(CircleShape).background(RisePrimary.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
@@ -145,7 +139,7 @@ fun AlarmRingingScreen(onAction: (WakeAction) -> Unit, modifier: Modifier = Modi
             Text("06:30", style = MaterialTheme.typography.displayLarge)
             Text("Đến lúc rời giường", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(12.dp))
-            StatusChip("3 nhiệm vụ · khoảng 2 phút", RiseSecondary, icon = Icons.Rounded.TaskAlt)
+            StatusChip("1 bài tập · xác minh bằng camera", RiseSecondary, icon = Icons.Rounded.TaskAlt)
         }
         Column(Modifier.align(Alignment.BottomCenter)) {
             RisePrimaryButton("Bắt đầu thức dậy", { onAction(WakeAction.Start) }, leadingIcon = Icons.Rounded.Bolt)
@@ -301,8 +295,8 @@ enum class SensorMissionType { Qr, Steps, Math, Shake }
 fun ActiveSensorMissionScreen(type: SensorMissionType, onAction: (WakeAction) -> Unit) {
     when (type) {
         SensorMissionType.Qr -> QrMission(onAction)
-        SensorMissionType.Steps -> ProgressMission("Đi bộ", "14 / 30 bước", 14f / 30f, Icons.Rounded.DirectionsWalk, "Cầm điện thoại và đi khỏi giường")
-        SensorMissionType.Shake -> ProgressMission("Lắc máy", "18 / 30", 18f / 30f, Icons.Rounded.Vibration, "Lắc đều theo nhịp")
+        SensorMissionType.Steps -> ProgressMission("Đi bộ", "140 / 500 bước", 140f / 500f, Icons.Rounded.DirectionsWalk, "Cầm điện thoại và đi khỏi giường")
+        SensorMissionType.Shake -> ProgressMission("Lắc máy", "40 / 100", 40f / 100f, Icons.Rounded.Vibration, "Lắc đều theo nhịp")
         SensorMissionType.Math -> MathMission(onAction)
     }
 }
@@ -311,7 +305,7 @@ fun ActiveSensorMissionScreen(type: SensorMissionType, onAction: (WakeAction) ->
 private fun QrMission(onAction: (WakeAction) -> Unit) {
     Box(Modifier.fillMaxSize().background(RiseBackground).padding(24.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth()) { StatusChip("Nhiệm vụ 1/3", RiseSecondary); Spacer(Modifier.weight(1f)); StatusChip("Re-fire 22s", RiseWarning) }
+            Row(Modifier.fillMaxWidth()) { StatusChip("Fallback kỹ thuật", RiseSecondary); Spacer(Modifier.weight(1f)); StatusChip("Re-fire 22s", RiseWarning) }
             Spacer(Modifier.height(30.dp))
             Text("Quét QR phòng tắm", style = MaterialTheme.typography.headlineMedium)
             Text("Đưa mã vào chính giữa khung", color = RiseTextMuted)
@@ -359,44 +353,24 @@ private fun MathMission(onAction: (WakeAction) -> Unit) {
 }
 
 @Composable
-fun EmergencyEscapeScreen(holdProgress: Float, onAction: (WakeAction) -> Unit) {
-    Column(Modifier.fillMaxSize().background(RiseBackground).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = { onAction(WakeAction.Back) }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Rounded.ArrowBack, "Quay lại") }
-        Spacer(Modifier.weight(1f))
-        IconBadge(Icons.Rounded.HealthAndSafety, RiseError, size = 96.dp)
-        Spacer(Modifier.height(24.dp))
-        Text("Dừng khẩn cấp", style = MaterialTheme.typography.headlineLarge)
-        Text("Chỉ dùng khi bạn không thể hoàn thành nhiệm vụ một cách an toàn. Sự kiện sẽ được ghi vào lịch sử.", color = RiseTextMuted, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(30.dp))
-        Box(Modifier.size(190.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(progress = { holdProgress }, modifier = Modifier.fillMaxSize(), strokeWidth = 12.dp, color = RiseError, trackColor = RiseSurfaceHigh)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.TouchApp, null, tint = RiseError); Text("Giữ 10 giây", fontWeight = FontWeight.Bold) }
-        }
-        Spacer(Modifier.height(24.dp))
-        RisePrimaryButton("Giữ để dừng báo thức", { onAction(WakeAction.ConfirmEscape) }, color = RiseError)
-        Spacer(Modifier.weight(1f))
-    }
-}
-
-@Composable
-fun WakeResultScreen(escaped: Boolean, onAction: (WakeAction) -> Unit) {
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(if (escaped) RiseError.copy(alpha = .17f) else RisePrimary.copy(alpha = .16f), RiseBackground))).padding(24.dp)) {
+fun WakeResultScreen(onAction: (WakeAction) -> Unit) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(RisePrimary.copy(alpha = .16f), RiseBackground))).padding(24.dp)) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.weight(1f))
-            IconBadge(if (escaped) Icons.Rounded.HealthAndSafety else Icons.Rounded.CheckCircle, if (escaped) RiseWarning else RiseVerified, size = 110.dp)
+            IconBadge(Icons.Rounded.CheckCircle, RiseVerified, size = 110.dp)
             Spacer(Modifier.height(24.dp))
-            Text(if (escaped) "Báo thức đã dừng an toàn" else "Bạn đã thức dậy!", style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
-            Text(if (escaped) "Phiên được đánh dấu Emergency Escape" else "Tuyệt vời — bắt đầu ngày mới thôi.", color = RiseTextMuted, textAlign = TextAlign.Center)
+            Text("Bạn đã thức dậy!", style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
+            Text("Tuyệt vời — bắt đầu ngày mới thôi.", color = RiseTextMuted, textAlign = TextAlign.Center)
             Spacer(Modifier.height(26.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard("Thời gian", "1p 34s", Icons.Rounded.Timer, RisePrimary, "Từ lần reo đầu", Modifier.weight(1f))
-                MetricCard("Chuỗi", if (escaped) "0 ngày" else "13 ngày", Icons.Rounded.LocalFireDepartment, if (escaped) RiseTextMuted else RiseVerified, if (escaped) "Đã đặt lại" else "Kỷ lục mới", Modifier.weight(1f))
+                MetricCard("Chuỗi", "13 ngày", Icons.Rounded.LocalFireDepartment, RiseVerified, "Kỷ lục mới", Modifier.weight(1f))
             }
             Spacer(Modifier.height(18.dp))
             RiseCard {
-                listOf("Quét QR phòng tắm", "Squat · 15/15", "Toán nhanh · 3/3").forEach { item ->
+                listOf("Push-up · 12/12").forEach { item ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircle, null, tint = if (escaped) RiseTextMuted else RiseVerified)
+                        Icon(Icons.Rounded.CheckCircle, null, tint = RiseVerified)
                         Text(item, modifier = Modifier.padding(start = 12.dp))
                     }
                 }
